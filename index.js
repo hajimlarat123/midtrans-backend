@@ -7,7 +7,7 @@ const port = 3000;
 app.use(express.json());
 
 // 🔐 Firebase Admin Init
-const serviceAccount = require('./serviceAccountKey.json');
+const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: 'https://lokerotomatis2-default-rtdb.asia-southeast1.firebasedatabase.app',
