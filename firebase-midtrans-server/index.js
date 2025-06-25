@@ -1,20 +1,30 @@
-// index.js
-const express = require('express');
-const axios = require('axios');
-const admin = require('firebase-admin');
-const app = express();
-const port = process.env.PORT || 3000;
+import express from 'express';
+import axios from 'axios';
+import admin from 'firebase-admin';
 
+const app = express();
 app.use(express.json());
 
-// ✅ Load Firebase Credentials from local file
-const serviceAccount = require('./serviceAccountKey.json');
+// 🔐 Inisialisasi Firebase Admin dari ENV
+const serviceAccount = {
+  type: "service_account",
+  project_id: process.env.FB_PROJECT_ID,
+  private_key_id: process.env.FB_PRIVATE_KEY_ID,
+  private_key: process.env.FB_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  client_email: process.env.FB_CLIENT_EMAIL,
+  client_id: process.env.FB_CLIENT_ID,
+  auth_uri: "https://accounts.google.com/o/oauth2/auth",
+  token_uri: "https://oauth2.googleapis.com/token",
+  auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
+  client_x509_cert_url: process.env.FB_CLIENT_CERT_URL,
+  universe_domain: "googleapis.com"
+};
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: 'https://lokerotomatis2-default-rtdb.asia-southeast1.firebasedatabase.app',
+  databaseURL: process.env.FB_DATABASE_URL
 });
 
-// 📌 Endpoint Snap Token
 app.post('/snap-token', async (req, res) => {
   const { lokasi, loker, user_id, durasi_jam, order_id, gross_amount } = req.body;
 
@@ -22,25 +32,26 @@ app.post('/snap-token', async (req, res) => {
     return res.status(400).send({ error: 'Parameter tidak lengkap' });
   }
 
-  const snapPayload = {
+  const payload = {
     transaction_details: {
       order_id,
       gross_amount: gross_amount || durasi_jam * 5000,
     },
     customer_details: {
       first_name: user_id,
-    }
+    },
   };
 
   try {
+    const midtransAuth = Buffer.from(process.env.MIDTRANS_SERVER_KEY + ":").toString('base64');
     const response = await axios.post(
       'https://app.sandbox.midtrans.com/snap/v1/transactions',
-      snapPayload,
+      payload,
       {
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Basic ' + Buffer.from('SB-Mid-server-xmy8-OZFa7vuhw6KNlc58WYX').toString('base64'),
-        }
+          'Authorization': `Basic ${midtransAuth}`,
+        },
       }
     );
 
@@ -48,7 +59,7 @@ app.post('/snap-token', async (req, res) => {
       lokasi,
       loker,
       user_id,
-      durasi_jam,
+      durasi_jam
     });
 
     res.json({
@@ -58,67 +69,41 @@ app.post('/snap-token', async (req, res) => {
       gross_amount,
     });
   } catch (error) {
-    console.error('❌ SNAP ERROR:', {
-      status: error.response?.status,
-      data: error.response?.data,
-      message: error.message
-    });
+    console.error('SNAP ERROR:', error.response?.data || error.message);
     res.status(500).send({ error: 'Gagal mendapatkan Snap Token' });
   }
 });
 
-// 📌 Webhook Midtrans
 app.post('/midtrans-notif', async (req, res) => {
   const notif = req.body;
-  console.log('📩 Webhook diterima:\n', JSON.stringify(notif, null, 2));
-
-  const transactionStatus = notif.transaction_status;
   const orderId = notif.order_id;
+  const status = notif.transaction_status;
 
-  if (!orderId || !transactionStatus) {
-    return res.status(400).send({ error: 'Invalid notification payload' });
-  }
+  if (!orderId || !status) return res.status(400).json({ error: 'Invalid payload' });
 
-  const parts = orderId.split('-');
-  if (parts.length < 4) {
-    console.log('⚠️ Bukan format order_id valid, mungkin test manual Midtrans:', orderId);
-    return res.status(200).json({ status: 'ok (test ignored)' });
-  }
+  const [lokasi, loker] = orderId.split('-');
 
-  const lokasi = parts[0];
-  const loker = parts[1];
+  const snapshot = await admin.database().ref(`pending_sewa/${orderId}`).once('value');
+  const pendingData = snapshot.val();
 
-  const snap = await admin.database().ref(`pending_sewa/${orderId}`).once('value');
-  const pendingData = snap.val();
+  if (!pendingData) return res.status(200).json({ status: 'ignored (no data)' });
 
-  if (!pendingData || !pendingData.durasi_jam || !pendingData.user_id) {
-    console.warn('⚠️ Notifikasi tidak dikenali:', orderId);
-    return res.status(200).json({ status: 'ok (unknown order)' });
-  }
+  const now = Date.now();
+  const expiredAt = now + pendingData.durasi_jam * 60 * 60 * 1000;
 
-  const userId = pendingData.user_id;
-
-  if (transactionStatus === 'settlement' || transactionStatus === 'capture') {
-    const now = Date.now();
-    const expiredAt = now + pendingData.durasi_jam * 60 * 60 * 1000;
-
+  if (status === 'settlement' || status === 'capture') {
     await admin.database().ref(`sewa_aktif/${lokasi}/${loker}`).set({
       status: 'terisi',
-      user_id: userId,
+      user_id: pendingData.user_id,
       expired_at: expiredAt,
     });
-
-    console.log(`✅ Loker ${lokasi}/${loker} disewa oleh ${userId} sampai ${new Date(expiredAt).toLocaleString()}`);
-
     await admin.database().ref(`pending_sewa/${orderId}`).remove();
-  } else {
-    console.log(`⚠️ Transaksi belum settlement: status = ${transactionStatus}`);
+    console.log(`✅ Loker ${lokasi}/${loker} aktif`);
   }
 
   res.status(200).json({ status: 'ok' });
 });
 
-// ✅ Start server
-app.listen(port, () => {
-  console.log(`🚀 Server berjalan di http://localhost:${port}`);
+app.listen(3000, () => {
+  console.log('🚀 Server berjalan di port 3000');
 });
