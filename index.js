@@ -125,3 +125,5 @@ app.post('/midtrans-notif', async (req, res) => {
 app.listen(port, () => {
   console.log(`🚀 Server berjalan di http://localhost:${port}`);
 });
+
+client.login(process.env.TOKEN);
