@@ -1,13 +1,18 @@
 const express = require('express');
 const axios = require('axios');
 const admin = require('firebase-admin');
+const fs = require('fs');
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// 🔐 Firebase Admin Init
-const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
+// 🔐 Simpan JSON credential dari env ke file temporer
+const firebaseCredPath = '/tmp/serviceAccountKey.json';
+fs.writeFileSync(firebaseCredPath, process.env.FIREBASE_CREDENTIALS);
+
+const serviceAccount = require(firebaseCredPath);
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: 'https://lokerotomatis2-default-rtdb.asia-southeast1.firebasedatabase.app',
@@ -38,7 +43,7 @@ app.post('/snap-token', async (req, res) => {
       {
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Basic ' + Buffer.from('SB-Mid-server-xmy8-OZFa7vuhw6KNlc58WYX').toString('base64'),
+          Authorization: 'Basic ' + Buffer.from(process.env.MIDTRANS_SERVER_KEY).toString('base64'),
         }
       }
     );
@@ -116,14 +121,10 @@ app.post('/midtrans-notif', async (req, res) => {
     console.log(`⚠️ Transaksi belum settlement: status = ${transactionStatus}`);
   }
 
-  // ✅ balas JSON untuk sukses ke Midtrans
   res.status(200).json({ status: 'ok' });
 });
-
 
 // ✅ Jalankan Server
 app.listen(port, () => {
   console.log(`🚀 Server berjalan di http://localhost:${port}`);
 });
-
-client.login(process.env.TOKEN);
