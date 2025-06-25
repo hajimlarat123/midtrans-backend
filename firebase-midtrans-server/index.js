@@ -1,19 +1,20 @@
+// index.js
 const express = require('express');
 const axios = require('axios');
 const admin = require('firebase-admin');
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// 🔐 Firebase Admin Init
+// ✅ Load Firebase Credentials from local file
 const serviceAccount = require('./serviceAccountKey.json');
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: 'https://lokerotomatis2-default-rtdb.asia-southeast1.firebasedatabase.app',
 });
 
-// 📌 Generate Snap Token
+// 📌 Endpoint Snap Token
 app.post('/snap-token', async (req, res) => {
   const { lokasi, loker, user_id, durasi_jam, order_id, gross_amount } = req.body;
 
@@ -43,7 +44,6 @@ app.post('/snap-token', async (req, res) => {
       }
     );
 
-    // 💾 Simpan pending sewa
     await admin.database().ref(`pending_sewa/${order_id}`).set({
       lokasi,
       loker,
@@ -67,7 +67,7 @@ app.post('/snap-token', async (req, res) => {
   }
 });
 
-// 📌 Webhook dari Midtrans
+// 📌 Webhook Midtrans
 app.post('/midtrans-notif', async (req, res) => {
   const notif = req.body;
   console.log('📩 Webhook diterima:\n', JSON.stringify(notif, null, 2));
@@ -88,13 +88,12 @@ app.post('/midtrans-notif', async (req, res) => {
   const lokasi = parts[0];
   const loker = parts[1];
 
-  // Ambil data pending
   const snap = await admin.database().ref(`pending_sewa/${orderId}`).once('value');
   const pendingData = snap.val();
 
   if (!pendingData || !pendingData.durasi_jam || !pendingData.user_id) {
-    console.warn('⚠️ Ini mungkin notifikasi test dari Midtrans. Tidak ada data pending sewa:', orderId);
-    return res.status(200).json({ status: 'ok (ignored test)' });
+    console.warn('⚠️ Notifikasi tidak dikenali:', orderId);
+    return res.status(200).json({ status: 'ok (unknown order)' });
   }
 
   const userId = pendingData.user_id;
@@ -116,12 +115,10 @@ app.post('/midtrans-notif', async (req, res) => {
     console.log(`⚠️ Transaksi belum settlement: status = ${transactionStatus}`);
   }
 
-  // ✅ balas JSON untuk sukses ke Midtrans
   res.status(200).json({ status: 'ok' });
 });
 
-
-// ✅ Jalankan Server
+// ✅ Start server
 app.listen(port, () => {
   console.log(`🚀 Server berjalan di http://localhost:${port}`);
 });
