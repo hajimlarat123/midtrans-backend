@@ -5,6 +5,10 @@ const app = express();
 const port = 3000;
 
 app.use(express.json());
+// 🟢 Endpoint untuk cek status server
+app.get('/', (req, res) => {
+  res.send('✅ Midtrans-Firebase Server aktif dan berjalan!');
+});
 
 // 🔐 Firebase Admin Init
 const serviceAccount = {
