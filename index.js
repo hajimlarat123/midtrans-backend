@@ -5,11 +5,12 @@ const app = express();
 const port = 3000;
 
 app.use(express.json());
-// 🟢 Endpoint untuk cek status server
-app.get('/', (req, res) => {
-  res.send('✅ Midtrans-Firebase Server aktif dan berjalan!');
+// Endpoint untuk monitoring ping
+app.get('/uptime', (req, res) => {
+  const now = new Date().toISOString();
+  console.log(`📶 UptimeRobot ping at ${now}`);
+  res.status(200).send(`UptimeRobot ping received at ${now}`);
 });
-
 // 🔐 Firebase Admin Init
 const serviceAccount = {
   type: "service_account",
