@@ -62,13 +62,17 @@ app.post('/snap-token', async (req, res) => {
     );
 
     // 💾 Simpan pending sewa
-    await admin.database().ref(`pending_sewa/${order_id}`).set({
-      lokasi,
-      loker,
-      user_id,
-      durasi_jam,
-    });
-
+    try{
+      await admin.database().ref(`pending_sewa/${order_id}`).set({
+        lokasi,
+        loker,
+        user_id,
+        durasi_jam,
+      });
+      console.log(`💾 pending_sewa disimpan: ${order_id}`);
+    } catch (err) {
+      console.error('🔥 Gagal menyimpan pending_sewa:', err);
+    }
     res.json({
       token: response.data.token,
       redirect_url: response.data.redirect_url,
