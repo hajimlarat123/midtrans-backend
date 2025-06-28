@@ -5,13 +5,15 @@ const app = express();
 const port = 3000;
 
 app.use(express.json());
-// Endpoint untuk monitoring ping
+
+// 🔍 Ping endpoint for uptime monitor
 app.get('/uptime', (req, res) => {
   const now = new Date().toISOString();
   console.log(`📶 UptimeRobot ping at ${now}`);
   res.status(200).send(`UptimeRobot ping received at ${now}`);
 });
-// 🔐 Firebase Admin Init
+
+// 🔐 Firebase Admin Initialization
 const serviceAccount = {
   type: "service_account",
   project_id: process.env.PROJECT_ID,
@@ -25,13 +27,15 @@ const serviceAccount = {
   client_x509_cert_url: process.env.CLIENT_CERT_URL,
   universe_domain: process.env.UNIVERSE_DOMAIN || "googleapis.com"
 };
+
 console.log("🔐 PRIVATE_KEY starts with:", process.env.PRIVATE_KEY?.slice(0, 30));
+
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: process.env.DATABASE_URL,
 });
 
-// 📌 Generate Snap Token
+// 📌 SNAP TOKEN REQUEST
 app.post('/snap-token', async (req, res) => {
   const { lokasi, loker, user_id, durasi_jam, order_id, gross_amount } = req.body;
 
@@ -61,8 +65,8 @@ app.post('/snap-token', async (req, res) => {
       }
     );
 
-    // 💾 Simpan pending sewa
-    try{
+    // Simpan ke pending_sewa
+    try {
       await admin.database().ref(`pending_sewa/${order_id}`).set({
         lokasi,
         loker,
@@ -73,6 +77,7 @@ app.post('/snap-token', async (req, res) => {
     } catch (err) {
       console.error('🔥 Gagal menyimpan pending_sewa:', err);
     }
+
     res.json({
       token: response.data.token,
       redirect_url: response.data.redirect_url,
@@ -89,71 +94,72 @@ app.post('/snap-token', async (req, res) => {
   }
 });
 
-// 📌 Webhook dari Midtrans
+// 📌 MIDTRANS NOTIFICATION HANDLER
 app.post('/midtrans-notif', async (req, res) => {
-  const notif = req.body;
-  console.log('📩 Webhook diterima:\n', JSON.stringify(notif, null, 2));
+  console.log('📩 Webhook diterima:\n', JSON.stringify(req.body, null, 2));
 
-  const transactionStatus = notif.transaction_status;
-  const orderId = notif.order_id;
+  try {
+    const notif = req.body;
+    const transactionStatus = notif.transaction_status;
+    const orderId = notif.order_id;
 
-  if (!orderId || !transactionStatus) {
-    return res.status(400).send({ error: 'Invalid notification payload' });
-  }
-
-  const parts = orderId.split('-');
-  if (parts.length < 4) {
-    console.log('⚠️ Bukan format order_id valid, mungkin test manual Midtrans:', orderId);
-    return res.status(200).json({ status: 'ok (test ignored)' });
-  }
-
-  const lokasi = parts[0];
-  const loker = parts[1];
-
-  // Ambil data pending
-  const snap = await admin.database().ref(`pending_sewa/${orderId}`).once('value');
-  const pendingData = snap.val();
-
-  if (!pendingData || !pendingData.durasi_jam || !pendingData.user_id) {
-    console.warn('⚠️ Ini mungkin notifikasi test dari Midtrans. Tidak ada data pending sewa:', orderId);
-    return res.status(200).json({ status: 'ok (ignored test)' });
-  }
-
-  const userId = pendingData.user_id;
-
-  if (transactionStatus === 'settlement' || transactionStatus === 'capture') {
-    const now = Date.now();
-    const expiredAt = now + pendingData.durasi_jam * 60 * 60 * 1000;
-
-    console.log(`📦 Menyimpan ke sewa_aktif/${lokasi}/${loker} dengan expiredAt: ${expiredAt}`);
-
-    try {
-      // write to sewa_aktif
-      await admin.database().ref(`sewa_aktif/${lokasi}/${loker}`).set({
-        status: 'terisi',
-        user_id: userId,
-        expired_at: expiredAt,
-      });
-
-      console.log(`✅ Berhasil menyimpan sewa_aktif`);
-
-      // delete pending_sewa
-      await admin.database().ref(`pending_sewa/${orderId}`).remove();
-
-      console.log(`🧹 pending_sewa dihapus`);
-    } catch (err) {
-      console.error('🔥 Gagal menyimpan ke Firebase:', err);
+    if (!orderId || !transactionStatus) {
+      console.warn('❌ Notifikasi tidak valid:', notif);
+      return res.status(400).send({ error: 'Invalid notification payload' });
     }
-  } else {
-    console.log(`⚠️ Transaksi belum settlement: status = ${transactionStatus}`);
-  }
 
-  // ✅ balas JSON untuk sukses ke Midtrans
-  res.status(200).json({ status: 'ok' });
-  console.log("Server time:", new Date().toISOString());
+    const parts = orderId.split('-');
+    if (parts.length < 4) {
+      console.warn('⚠️ Format order_id tidak valid:', orderId);
+      return res.status(200).json({ status: 'ignored (invalid orderId)' });
+    }
+
+    const lokasi = parts[0];
+    const loker = parts[1];
+
+    const snap = await admin.database().ref(`pending_sewa/${orderId}`).once('value');
+    const pendingData = snap.val();
+
+    if (!pendingData || !pendingData.durasi_jam || !pendingData.user_id) {
+      console.warn('⚠️ Tidak ada data pending untuk order:', orderId);
+      return res.status(200).json({ status: 'ignored (no pending data)' });
+    }
+
+    const userId = pendingData.user_id;
+
+    if (transactionStatus === 'settlement' || transactionStatus === 'capture') {
+      const now = Date.now();
+      const expiredAt = now + pendingData.durasi_jam * 60 * 60 * 1000;
+
+      console.log(`📦 Simpan ke sewa_aktif/${lokasi}/${loker}, expired at: ${expiredAt}`);
+
+      try {
+        await admin.database().ref(`sewa_aktif/${lokasi}/${loker}`).set({
+          status: 'terisi',
+          user_id: userId,
+          expired_at: expiredAt,
+        });
+
+        console.log('✅ Berhasil menyimpan ke sewa_aktif');
+        await admin.database().ref(`pending_sewa/${orderId}`).remove();
+        console.log('🧹 pending_sewa dihapus');
+      } catch (err) {
+        console.error('🔥 Gagal menyimpan ke Firebase:', err);
+      }
+    } else {
+      console.log(`⚠️ Transaksi belum settlement. Status: ${transactionStatus}`);
+    }
+
+    res.status(200).json({ status: 'ok' });
+    console.log("✅ Webhook selesai diproses:", new Date().toISOString());
+
+  } catch (err) {
+    console.error('🔥 ERROR saat proses webhook:', err);
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
 });
 
-// ✅ Jalankan Server
+// ✅ Start Server
 app.listen(port, () => {
   console.log(`🚀 Server berjalan di http://localhost:${port}`);
 });
