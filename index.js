@@ -25,6 +25,7 @@ const serviceAccount = {
   client_x509_cert_url: process.env.CLIENT_CERT_URL,
   universe_domain: process.env.UNIVERSE_DOMAIN || "googleapis.com"
 };
+console.log("🔐 PRIVATE_KEY starts with:", process.env.PRIVATE_KEY?.slice(0, 30));
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: process.env.DATABASE_URL,
