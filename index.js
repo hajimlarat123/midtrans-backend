@@ -119,28 +119,27 @@ app.post('/midtrans-notif', async (req, res) => {
 
   if (transactionStatus === 'settlement' || transactionStatus === 'capture') {
     const now = Date.now();
-  const expiredAt = now + pendingData.durasi_jam * 60 * 60 * 1000;
+    const expiredAt = now + pendingData.durasi_jam * 60 * 60 * 1000;
 
-  console.log(`📦 Menyimpan ke sewa_aktif/${lokasi}/${loker} dengan expiredAt: ${expiredAt}`);
+    console.log(`📦 Menyimpan ke sewa_aktif/${lokasi}/${loker} dengan expiredAt: ${expiredAt}`);
 
-  try {
-  // write to sewa_aktif
-  await admin.database().ref(`sewa_aktif/${lokasi}/${loker}`).set({
-    status: 'terisi',
-    user_id: userId,
-    expired_at: expiredAt,
-  });
+    try {
+      // write to sewa_aktif
+      await admin.database().ref(`sewa_aktif/${lokasi}/${loker}`).set({
+        status: 'terisi',
+        user_id: userId,
+        expired_at: expiredAt,
+      });
 
-  console.log(`✅ Berhasil menyimpan sewa_aktif`);
+      console.log(`✅ Berhasil menyimpan sewa_aktif`);
 
-  // delete pending_sewa
-  await admin.database().ref(`pending_sewa/${orderId}`).remove();
+      // delete pending_sewa
+      await admin.database().ref(`pending_sewa/${orderId}`).remove();
 
-  console.log(`🧹 pending_sewa dihapus`);
-} catch (err) {
-  console.error('🔥 Gagal menyimpan ke Firebase:', err);
-}
-}
+      console.log(`🧹 pending_sewa dihapus`);
+    } catch (err) {
+      console.error('🔥 Gagal menyimpan ke Firebase:', err);
+    }
   } else {
     console.log(`⚠️ Transaksi belum settlement: status = ${transactionStatus}`);
   }
@@ -149,7 +148,6 @@ app.post('/midtrans-notif', async (req, res) => {
   res.status(200).json({ status: 'ok' });
   console.log("Server time:", new Date().toISOString());
 });
-
 
 // ✅ Jalankan Server
 app.listen(port, () => {
