@@ -154,6 +154,28 @@ app.post('/midtrans-notif', async (req, res) => {
           user_email: userEmail,
           expired_at: expiredAt,
         });
+        
+        console.log('✅ Berhasil menyimpan ke sewa_aktif');
+        
+        // Hitung total harga
+        const hargaTotal = (pendingData.durasi_jam || 1) * 5000;
+        
+        // Simpan ke sewa_history/{order_id}
+        await admin.database().ref(`sewa_history/${orderId}`).set({
+          lokasi_id: lokasi,
+          loker_id: loker,
+          user_id: userId,
+          user_nama: userNama,
+          user_email: userEmail,
+          waktu_mulai: Date.now(),
+          durasi_jam: pendingData.durasi_jam,
+          harga_total: hargaTotal,
+        });
+        console.log('📝 Ditambahkan ke sewa_history');
+        
+        // Hapus dari pending
+        await admin.database().ref(`pending_sewa/${orderId}`).remove();
+        console.log('🧹 pending_sewa dihapus');
 
         console.log('✅ Berhasil menyimpan ke sewa_aktif');
         await admin.database().ref(`pending_sewa/${orderId}`).remove();
