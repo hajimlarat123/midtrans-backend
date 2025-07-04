@@ -127,6 +127,19 @@ app.post('/midtrans-notif', async (req, res) => {
 
     const userId = pendingData.user_id;
 
+    // Ambil nama dan email user dari /users/{user_id}
+    let userNama = null;
+    let userEmail = null;
+
+    try {
+      const userSnap = await admin.database().ref(`users/${userId}`).once('value');
+      const userInfo = userSnap.val();
+      userNama = userInfo?.nama || null;
+      userEmail = userInfo?.email || null;
+    } catch (e) {
+      console.warn('⚠️ Gagal mengambil nama/email dari /users:', e);
+    }
+
     if (transactionStatus === 'settlement' || transactionStatus === 'capture') {
       const now = Date.now();
       const expiredAt = now + pendingData.durasi_jam * 60 * 60 * 1000;
@@ -137,6 +150,8 @@ app.post('/midtrans-notif', async (req, res) => {
         await admin.database().ref(`sewa_aktif/${lokasi}/${loker}`).set({
           status: 'terisi',
           user_id: userId,
+          user_nama: userNama,
+          user_email: userEmail,
           expired_at: expiredAt,
         });
 
