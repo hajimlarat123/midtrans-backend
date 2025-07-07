@@ -51,18 +51,9 @@ admin.initializeApp({
 
 // 📌 SNAP TOKEN REQUEST
 app.post('/snap-token', async (req, res) => {
-  const {
-    lokasi,
-    loker,
-    user_id,
-    durasi_jam,
-    order_id,
-    gross_amount,
-    user_nama,
-    user_email
-  } = req.body;
+  const { lokasi, loker, user_id, durasi_jam, order_id, gross_amount } = req.body;
 
-  if (!lokasi || !loker || !user_id || !durasi_jam || !order_id || !user_nama || !user_email) {
+  if (!lokasi || !loker || !user_id || !durasi_jam || !order_id) {
     return res.status(400).send({ error: 'Parameter tidak lengkap' });
   }
 
@@ -72,8 +63,7 @@ app.post('/snap-token', async (req, res) => {
       gross_amount: gross_amount || durasi_jam * 5000,
     },
     customer_details: {
-      first_name: user_nama,
-      email: user_email,
+      first_name: user_id,
     }
   };
 
@@ -84,21 +74,20 @@ app.post('/snap-token', async (req, res) => {
       {
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Basic ' + Buffer.from(process.env.MIDTRANS_SERVER_KEY).toString('base64'),
-        }
+          Authorization:
+            'Basic ' +
+            Buffer.from(process.env.MIDTRANS_SERVER_KEY).toString('base64'),
+        },
       }
     );
 
+    // Simpan ke pending_sewa
     await admin.database().ref(`pending_sewa/${order_id}`).set({
       lokasi,
       loker,
       user_id,
-      user_nama,
-      user_email,
       durasi_jam,
     });
-
-    console.log(`💾 pending_sewa disimpan: ${order_id}`);
 
     res.json({
       token: response.data.token,
@@ -110,7 +99,7 @@ app.post('/snap-token', async (req, res) => {
     console.error('❌ SNAP ERROR:', {
       status: error.response?.status,
       data: error.response?.data,
-      message: error.message
+      message: error.message,
     });
     res.status(500).send({ error: 'Gagal mendapatkan Snap Token' });
   }
