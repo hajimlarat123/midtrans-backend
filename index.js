@@ -87,6 +87,8 @@ app.post('/snap-token', async (req, res) => {
       loker,
       user_id,
       durasi_jam,
+      user_nama: userNama,
+      user_email: userEmail,
     });
 
     res.json({
