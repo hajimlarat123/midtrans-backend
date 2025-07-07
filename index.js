@@ -28,8 +28,6 @@ const serviceAccount = {
   universe_domain: process.env.UNIVERSE_DOMAIN || "googleapis.com"
 };
 
-console.log("🔐 PRIVATE_KEY starts with:", process.env.PRIVATE_KEY?.slice(0, 30));
-
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: process.env.DATABASE_URL,
@@ -37,9 +35,18 @@ admin.initializeApp({
 
 // 📌 SNAP TOKEN REQUEST
 app.post('/snap-token', async (req, res) => {
-  const { lokasi, loker, user_id, durasi_jam, order_id, gross_amount } = req.body;
+  const {
+    lokasi,
+    loker,
+    user_id,
+    durasi_jam,
+    order_id,
+    gross_amount,
+    user_nama,
+    user_email
+  } = req.body;
 
-  if (!lokasi || !loker || !user_id || !durasi_jam || !order_id) {
+  if (!lokasi || !loker || !user_id || !durasi_jam || !order_id || !user_nama || !user_email) {
     return res.status(400).send({ error: 'Parameter tidak lengkap' });
   }
 
@@ -49,7 +56,8 @@ app.post('/snap-token', async (req, res) => {
       gross_amount: gross_amount || durasi_jam * 5000,
     },
     customer_details: {
-      first_name: user_id,
+      first_name: user_nama,
+      email: user_email,
     }
   };
 
@@ -65,18 +73,16 @@ app.post('/snap-token', async (req, res) => {
       }
     );
 
-    // Simpan ke pending_sewa
-    try {
-      await admin.database().ref(`pending_sewa/${order_id}`).set({
-        lokasi,
-        loker,
-        user_id,
-        durasi_jam,
-      });
-      console.log(`💾 pending_sewa disimpan: ${order_id}`);
-    } catch (err) {
-      console.error('🔥 Gagal menyimpan pending_sewa:', err);
-    }
+    await admin.database().ref(`pending_sewa/${order_id}`).set({
+      lokasi,
+      loker,
+      user_id,
+      user_nama,
+      user_email,
+      durasi_jam,
+    });
+
+    console.log(`💾 pending_sewa disimpan: ${order_id}`);
 
     res.json({
       token: response.data.token,
@@ -125,64 +131,43 @@ app.post('/midtrans-notif', async (req, res) => {
       return res.status(200).json({ status: 'ignored (no pending data)' });
     }
 
-    const userId = pendingData.user_id;
-
-    // Ambil nama dan email user dari /users/{user_id}
-    let userNama = null;
-    let userEmail = null;
-
-    try {
-      const userSnap = await admin.database().ref(`users/${userId}`).once('value');
-      const userInfo = userSnap.val();
-      userNama = userInfo?.nama || null;
-      userEmail = userInfo?.email || null;
-    } catch (e) {
-      console.warn('⚠️ Gagal mengambil nama/email dari /users:', e);
-    }
+    const {
+      user_id,
+      user_nama,
+      user_email,
+      durasi_jam
+    } = pendingData;
 
     if (transactionStatus === 'settlement' || transactionStatus === 'capture') {
       const now = Date.now();
-      const expiredAt = now + pendingData.durasi_jam * 60 * 60 * 1000;
+      const expiredAt = now + durasi_jam * 60 * 60 * 1000;
+      const hargaTotal = durasi_jam * 5000;
 
-      console.log(`📦 Simpan ke sewa_aktif/${lokasi}/${loker}, expired at: ${expiredAt}`);
+      await admin.database().ref(`sewa_aktif/${lokasi}/${loker}`).set({
+        status: 'terisi',
+        user_id,
+        user_nama,
+        user_email,
+        expired_at: expiredAt,
+      });
 
-      try {
-        await admin.database().ref(`sewa_aktif/${lokasi}/${loker}`).set({
-          status: 'terisi',
-          user_id: userId,
-          user_nama: userNama,
-          user_email: userEmail,
-          expired_at: expiredAt,
-        });
-        
-        console.log('✅ Berhasil menyimpan ke sewa_aktif');
-        
-        // Hitung total harga
-        const hargaTotal = (pendingData.durasi_jam || 1) * 5000;
-        
-        // Simpan ke sewa_history/{order_id}
-        await admin.database().ref(`sewa_history/${orderId}`).set({
-          lokasi_id: lokasi,
-          loker_id: loker,
-          user_id: userId,
-          user_nama: userNama,
-          user_email: userEmail,
-          waktu_mulai: Date.now(),
-          durasi_jam: pendingData.durasi_jam,
-          harga_total: hargaTotal,
-        });
-        console.log('📝 Ditambahkan ke sewa_history');
-        
-        // Hapus dari pending
-        await admin.database().ref(`pending_sewa/${orderId}`).remove();
-        console.log('🧹 pending_sewa dihapus');
+      console.log('✅ Berhasil menyimpan ke sewa_aktif');
 
-        console.log('✅ Berhasil menyimpan ke sewa_aktif');
-        await admin.database().ref(`pending_sewa/${orderId}`).remove();
-        console.log('🧹 pending_sewa dihapus');
-      } catch (err) {
-        console.error('🔥 Gagal menyimpan ke Firebase:', err);
-      }
+      await admin.database().ref(`sewa_history/${orderId}`).set({
+        lokasi_id: lokasi,
+        loker_id: loker,
+        user_id,
+        user_nama,
+        user_email,
+        waktu_mulai: now,
+        durasi_jam,
+        harga_total: hargaTotal,
+      });
+
+      console.log('📝 Ditambahkan ke sewa_history');
+
+      await admin.database().ref(`pending_sewa/${orderId}`).remove();
+      console.log('🧹 pending_sewa dihapus');
     } else {
       console.log(`⚠️ Transaksi belum settlement. Status: ${transactionStatus}`);
     }
