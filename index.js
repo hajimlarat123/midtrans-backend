@@ -84,7 +84,7 @@ app.post('/snap-token', async (req, res) => {
       {
         headers: {
           'Content-Type': 'application/json',
-          Authorization: 'Basic ' + Buffer.from('SB-Mid-server-xmy8-OZFa7vuhw6KNlc58WYX').toString('base64'),
+          Authorization: 'Basic ' + Buffer.from(process.env.MIDTRANS_SERVER_KEY).toString('base64'),
         }
       }
     );
