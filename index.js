@@ -13,6 +13,22 @@ app.get('/uptime', (req, res) => {
   res.status(200).send(`UptimeRobot ping received at ${now}`);
 });
 
+// 🔁 Finish redirect dari Midtrans
+app.get('/finish', (req, res) => {
+  res.send(`
+    <html>
+      <head><title>Pembayaran Selesai</title></head>
+      <body style="text-align: center; font-family: sans-serif;">
+        <h1>✅ Pembayaran Berhasil!</h1>
+        <p>Terima kasih telah menggunakan layanan kami.</p>
+        <script>
+          setTimeout(() => window.close(), 3000);
+        </script>
+      </body>
+    </html>
+  `);
+});
+
 // 🔐 Firebase Admin Initialization
 const serviceAccount = {
   type: "service_account",
