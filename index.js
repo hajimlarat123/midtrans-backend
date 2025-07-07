@@ -136,18 +136,30 @@ app.post('/midtrans-notif', async (req, res) => {
       return res.status(200).json({ status: 'ignored (no pending data)' });
     }
 
-    const {
-      user_id,
-      user_nama,
-      user_email,
-      durasi_jam
-    } = pendingData;
+    const durasi_jam = pendingData.durasi_jam;
+    const user_id = pendingData.user_id;
+
+    // Ambil nama dan email dari pending_sewa atau fallback ke /users/{user_id}
+    let user_nama = pendingData.user_nama || 'Tidak Diketahui';
+    let user_email = pendingData.user_email || 'unknown@example.com';
+
+    if (!pendingData.user_nama || !pendingData.user_email) {
+      try {
+        const userSnap = await admin.database().ref(`users/${user_id}`).once('value');
+        const userInfo = userSnap.val();
+        user_nama = userInfo?.nama || user_nama;
+        user_email = userInfo?.email || user_email;
+      } catch (e) {
+        console.warn('⚠️ Gagal mengambil nama/email dari /users:', e);
+      }
+    }
 
     if (transactionStatus === 'settlement' || transactionStatus === 'capture') {
       const now = Date.now();
       const expiredAt = now + durasi_jam * 60 * 60 * 1000;
-      const hargaTotal = durasi_jam * 5000;
+      const harga_total = durasi_jam * 5000;
 
+      // Simpan ke sewa_aktif
       await admin.database().ref(`sewa_aktif/${lokasi}/${loker}`).set({
         status: 'terisi',
         user_id,
@@ -158,6 +170,7 @@ app.post('/midtrans-notif', async (req, res) => {
 
       console.log('✅ Berhasil menyimpan ke sewa_aktif');
 
+      // Simpan ke sewa_history
       await admin.database().ref(`sewa_history/${orderId}`).set({
         lokasi_id: lokasi,
         loker_id: loker,
@@ -166,11 +179,12 @@ app.post('/midtrans-notif', async (req, res) => {
         user_email,
         waktu_mulai: now,
         durasi_jam,
-        harga_total: hargaTotal,
+        harga_total,
       });
 
       console.log('📝 Ditambahkan ke sewa_history');
 
+      // Hapus dari pending
       await admin.database().ref(`pending_sewa/${orderId}`).remove();
       console.log('🧹 pending_sewa dihapus');
     } else {
