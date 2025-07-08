@@ -6,14 +6,14 @@ const port = 3000;
 
 app.use(express.json());
 
-// 🔍 Ping endpoint for uptime monitor
+// 🔍 Uptime checker
 app.get('/uptime', (req, res) => {
   const now = new Date().toISOString();
-  console.log(`📶 UptimeRobot ping at ${now}`);
-  res.status(200).send(`UptimeRobot ping received at ${now}`);
+  console.log(`📶 Uptime ping at ${now}`);
+  res.status(200).send(`Uptime ping received at ${now}`);
 });
 
-// 🔁 Finish redirect dari Midtrans
+// ✅ Finish redirect from Midtrans Snap
 app.get('/finish', (req, res) => {
   res.send(`
     <html>
@@ -29,7 +29,7 @@ app.get('/finish', (req, res) => {
   `);
 });
 
-// 🔐 Firebase Admin Initialization
+// 🔐 Firebase Admin SDK init
 const serviceAccount = {
   type: "service_account",
   project_id: process.env.PROJECT_ID,
@@ -41,7 +41,7 @@ const serviceAccount = {
   token_uri: process.env.TOKEN_URI,
   auth_provider_x509_cert_url: process.env.AUTH_PROVIDER_CERT_URL,
   client_x509_cert_url: process.env.CLIENT_CERT_URL,
-  universe_domain: process.env.UNIVERSE_DOMAIN || "googleapis.com"
+  universe_domain: process.env.UNIVERSE_DOMAIN || "googleapis.com",
 };
 
 admin.initializeApp({
@@ -49,22 +49,41 @@ admin.initializeApp({
   databaseURL: process.env.DATABASE_URL,
 });
 
-// 📌 SNAP TOKEN REQUEST
+
+// 🔁 Generate Snap Token
 app.post('/snap-token', async (req, res) => {
-  const { lokasi, loker, user_id, durasi_jam, order_id, gross_amount } = req.body;
+  const { lokasi, loker, user_id, durasi_jam, order_id } = req.body;
 
   if (!lokasi || !loker || !user_id || !durasi_jam || !order_id) {
     return res.status(400).send({ error: 'Parameter tidak lengkap' });
   }
 
+  // Ambil nama & email dari database users
+  let userNama = '-';
+  let userEmail = '-';
+  try {
+    const userSnap = await admin.database().ref(`users/${user_id}`).once('value');
+    const userInfo = userSnap.val() || {};
+    userNama = userInfo.nama || '-';
+    userEmail = userInfo.email || '-';
+  } catch (e) {
+    console.warn('⚠️ Tidak bisa mengambil user info:', e.message);
+  }
+
+  const hargaTotal = durasi_jam * 5000;
+
   const snapPayload = {
     transaction_details: {
       order_id,
-      gross_amount: gross_amount || durasi_jam * 5000,
+      gross_amount: hargaTotal,
     },
     customer_details: {
-      first_name: user_id,
-    }
+      first_name: userNama,
+      email: userEmail,
+    },
+    callbacks: {
+      finish: "https://midtrans-backend-1.onrender.com/finish",
+    },
   };
 
   try {
@@ -74,14 +93,11 @@ app.post('/snap-token', async (req, res) => {
       {
         headers: {
           'Content-Type': 'application/json',
-          Authorization:
-            'Basic ' +
-            Buffer.from(process.env.MIDTRANS_SERVER_KEY).toString('base64'),
+          Authorization: 'Basic ' + Buffer.from(process.env.MIDTRANS_SERVER_KEY).toString('base64'),
         },
       }
     );
 
-    // Simpan ke pending_sewa
     await admin.database().ref(`pending_sewa/${order_id}`).set({
       lokasi,
       loker,
@@ -91,11 +107,13 @@ app.post('/snap-token', async (req, res) => {
       user_email: userEmail,
     });
 
+    console.log(`✅ Snap Token dibuat & pending_sewa disimpan: ${order_id}`);
+
     res.json({
       token: response.data.token,
       redirect_url: response.data.redirect_url,
       order_id,
-      gross_amount,
+      gross_amount: hargaTotal,
     });
   } catch (error) {
     console.error('❌ SNAP ERROR:', {
@@ -107,7 +125,8 @@ app.post('/snap-token', async (req, res) => {
   }
 });
 
-// 📌 MIDTRANS NOTIFICATION HANDLER
+
+// 📥 Webhook dari Midtrans
 app.post('/midtrans-notif', async (req, res) => {
   console.log('📩 Webhook diterima:\n', JSON.stringify(req.body, null, 2));
 
@@ -141,18 +160,17 @@ app.post('/midtrans-notif', async (req, res) => {
     const durasi_jam = pendingData.durasi_jam;
     const user_id = pendingData.user_id;
 
-    // Ambil nama dan email dari pending_sewa atau fallback ke /users/{user_id}
-    let user_nama = pendingData.user_nama || 'Tidak Diketahui';
-    let user_email = pendingData.user_email || 'unknown@example.com';
-
+    // Ambil nama dan email fallback jika tidak ada di pending_sewa
+    let user_nama = pendingData.user_nama || '-';
+    let user_email = pendingData.user_email || '-';
     if (!pendingData.user_nama || !pendingData.user_email) {
       try {
         const userSnap = await admin.database().ref(`users/${user_id}`).once('value');
-        const userInfo = userSnap.val();
-        user_nama = userInfo?.nama || user_nama;
-        user_email = userInfo?.email || user_email;
+        const userInfo = userSnap.val() || {};
+        user_nama = userInfo.nama || user_nama;
+        user_email = userInfo.email || user_email;
       } catch (e) {
-        console.warn('⚠️ Gagal mengambil nama/email dari /users:', e);
+        console.warn('⚠️ Gagal ambil user info dari /users:', e.message);
       }
     }
 
@@ -161,7 +179,6 @@ app.post('/midtrans-notif', async (req, res) => {
       const expiredAt = now + durasi_jam * 60 * 60 * 1000;
       const harga_total = durasi_jam * 5000;
 
-      // Simpan ke sewa_aktif
       await admin.database().ref(`sewa_aktif/${lokasi}/${loker}`).set({
         status: 'terisi',
         user_id,
@@ -170,9 +187,6 @@ app.post('/midtrans-notif', async (req, res) => {
         expired_at: expiredAt,
       });
 
-      console.log('✅ Berhasil menyimpan ke sewa_aktif');
-
-      // Simpan ke sewa_history
       await admin.database().ref(`sewa_history/${orderId}`).set({
         lokasi_id: lokasi,
         loker_id: loker,
@@ -184,25 +198,22 @@ app.post('/midtrans-notif', async (req, res) => {
         harga_total,
       });
 
-      console.log('📝 Ditambahkan ke sewa_history');
-
-      // Hapus dari pending
       await admin.database().ref(`pending_sewa/${orderId}`).remove();
-      console.log('🧹 pending_sewa dihapus');
+
+      console.log('✅ Transaksi sukses & data disimpan.');
     } else {
-      console.log(`⚠️ Transaksi belum settlement. Status: ${transactionStatus}`);
+      console.log(`⚠️ Status transaksi belum settlement: ${transactionStatus}`);
     }
 
     res.status(200).json({ status: 'ok' });
-    console.log("✅ Webhook selesai diproses:", new Date().toISOString());
-
   } catch (err) {
     console.error('🔥 ERROR saat proses webhook:', err);
     res.status(500).json({ error: 'Webhook processing failed' });
   }
 });
 
-// ✅ Start Server
+
+// 🚀 Jalankan server
 app.listen(port, () => {
   console.log(`🚀 Server berjalan di http://localhost:${port}`);
 });
